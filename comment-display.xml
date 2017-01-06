@@ -1,0 +1,682 @@
+<?xml version="1.0" encoding="UTF-8" ?> 
+<Module>
+  <ModulePrefs title="Site Comments gadget" title_url="" description="A gadget to create a comments system using a table from a spreadsheet and add interactive controls to manipulate the data it displays." thumbnail="https://lh4.googleusercontent.com/-xA_DeKKP8WU/UClaEV2whII/AAAAAAAACx4/In82qj2KK8g/s256/1344887266_filter_data.png" screenshot="https://lh4.googleusercontent.com/-Stn7Zd_v7PM/UClaKFS4GdI/AAAAAAAACx4/N0k9hXqgh6g/s965/Screen+Shot+2012-08-13+at+9.45.28+PM.png" width="800" height="600" author="Romain Vialard" author_email="romain.vialard@gmail.com" author_photo="https://lh5.googleusercontent.com/-jCtTYPxmFpI/AAAAAAAAAAI/AAAAAAAABwI/rhjzYu2nA2Y/s250-c-k/photo.jpg" author_link="https://plus.google.com/u/0/116263732197316259248/about">
+    <Require feature="dynamic-height"/>
+    <Require feature="com.google.gadgets.analytics"/> 
+  </ModulePrefs>
+  <UserPref name="url" display_name="Spreadsheet key or url" required="true"/>
+  <UserPref name="sheet" display_name="Spreadsheet name" default_value="Sheet1" required="true"/>
+  <UserPref name="range" display_name="Spreadsheet range" default_value="A1:H" required="true"/>
+  <UserPref name="pageSize" display_name="Number of items to display" default_value="15" required="true"/>
+  <UserPref name="categoryCaption" display_name="The caption to display inside the category filter when no item is selected" default_value="Choose a value..." required="false"/>
+  <UserPref name="backgroundColor" display_name="The background color of your page" default_value="white" required="false"/>
+  <UserPref name="dateFormat" display_name="Format for Date Filter" default_value="MM/dd/yyyy" datatype="enum">
+    <EnumValue value="MM/dd/yyyy" display_value="MM/dd/yyyy"/>
+    <EnumValue value="dd/MM/yyyy" display_value="dd/MM/yyyy"/>
+    <EnumValue value="MM/yyyy" display_value="MM/yyyy"/>
+  </UserPref>
+  <UserPref name="pageColumn" display_name="Page Column (instead of query)" default_value="" required="false"/>
+  <UserPref name="queryOpt" display_name="Query (for advanced users)" default_value="" required="false"/>
+  <UserPref name="comFrmAction" display_name="Submit URL" default_value="" required="false"/>
+  <UserPref name="comFrmRows" display_name="Delimited Form Rows" default_value="" required="false"/>
+  <UserPref name="codeAnalytics" display_name="Google Analytics tracking code" default_value="" required="false"/>
+  <UserPref name="visualizationType" display_name="Display data as" default_value="Table" datatype="enum" >
+    <EnumValue value="Table" />
+    <EnumValue value="Maps" />
+    <EnumValue value="Gantt" />
+  </UserPref> 
+  <UserPref name="download" display_name="Allow viewers to download data as csv" datatype="bool" />
+  <UserPref name="customCSS" display_name="Custom CSS (url)" default_value="" required="false"/>
+  <Content type="html">
+  <![CDATA[
+  <link id="awesomeTableCSS" rel="stylesheet" type="text/css" href="https://site-comments.googlecode.com/svn/branches/v1/site-comments.css" />
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+  <script type="text/javascript">
+  function getDocURL() {
+    var ll = document.URL;
+    var idxstart = ll.indexOf('parent=');
+    var idxend = ll.indexOf('#', 1*idxstart);
+    ll = ll.substring(idxstart+7, idxend );
+    return ll;
+  }
+  var hdnPageURLField = '';
+  function submitComment() {
+    document.getElementById(hdnPageURLField).value = getDocURL();
+	setTimeout("window.location.reload(true);",2000);
+    /*var formData = new FormData(document.getElementById('ssform'));// yourForm: form selector        
+            $.ajax({
+                type: "POST",
+                url: "https://docs.google.com/forms/d/1uSKujJzhAsqBG5Cdvk7UVMmg5alopHvGebdu1YH-OTc/formResponse",// where you wanna post
+                data: formData,
+                processData: false,
+                contentType: false
+            });
+    */
+    //fm.ajaxForm({url: 'https://docs.google.com/forms/d/1uSKujJzhAsqBG5Cdvk7UVMmg5alopHvGebdu1YH-OTc/formResponse', type: 'post'});
+    
+    
+  }
+  </script>
+<script type="text/javascript" 
+  src="https://www.google.com/jsapi?autoload={'modules':[{'name':'visualization', 'version':'1','packages':['controls']}]}">
+</script>
+<script type="text/javascript">   
+  var prefs = new gadgets.Prefs();
+  
+  // Check if stylesheet should be changed
+  var customCSS = prefs.getString("customCSS");
+  if(customCSS.indexOf('http') != -1) {
+    document.getElementById("awesomeTableCSS").href= customCSS;
+  }
+  
+  /**************************************************************************/
+  /**************************************************************************/
+  /**************************************************************************/
+  /**************************************************************************/
+  var wrapper;
+  var data;
+  var dateFilters = [];
+  var columnsToDisplay = [];
+  var sidebarColumn = '';
+  var idColumn = '';
+  var queryString = '';
+  var countToAdjustHeight; 
+  ////////////////////////////////////
+  // GOOGLE ANALYTICS
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', prefs.getString("codeAnalytics")]);
+  _gaq.push(['_trackPageview']);
+  _gaq.push(['_trackEvent']);
+  (function() {
+    var ga = document.createElement('script');
+    ga.type = 'text/javascript';
+    ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0];
+    s.parentNode.insertBefore(ga, s);
+  }
+  )();
+  function drawVisualization() {
+    var url = prefs.getString("url");
+    var key = url;
+    var domain = '';
+    if(url.indexOf('http') != -1){
+      domain = url.match(/a\/[^\/]+\//);
+      domain = (domain != null)?domain[0]:"";
+      key = url.match(/key=([^#]+)#/)[1];
+    }
+    queryString = 'https://spreadsheets.google.com/'+domain+'tq?key='+key+'&headers=2&range='+prefs.getString("range")+'&sheet='+prefs.getString("sheet");
+    var query = new google.visualization.Query(queryString);
+    var pageColumn = prefs.getString("pageColumn");
+    if(pageColumn != '') {
+      var qry = "select * where " + pageColumn + " = '" + getDocURL() + "'";
+      query.setQuery(qry);
+    }
+    var options = prefs.getString("queryOpt");
+    if(options != '') {
+      //////////////////////////////////////
+      // Check if data from a specific column in the spreadsheet should be displayed in a sidebar
+      if(options.indexOf('sidebar ') != -1) sidebarColumn = options.split('sidebar ')[1].split(' ')[0];
+      idColumn = options.split('elect ')[1].split(',')[0];
+      options = options.replace(' sidebar ' + sidebarColumn, '').replace(/&#39;/g, '\'').replace(/&#34;/g, '\'').replace(/&#60;/g, '<').replace(/&#62;/g, '>');
+      if(options.indexOf('#') == -1) query.setQuery(options);
+      console.log(options);
+    }
+    query.send(handleQueryResponse);
+  }
+  
+  function handleQueryResponse(response) {
+    if (response.isError()) {
+      alert('Error in query: ' + response.getMessage() + ' ' + response.getDetailedMessage());
+      return;
+    }
+    
+    document.body.style.backgroundColor = prefs.getString("backgroundColor");
+    document.getElementById('loader').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'inline';
+    data = response.getDataTable();
+    var numberOfColumns = data.getNumberOfColumns();
+    var numberOfResults = data.getNumberOfRows() - 1;
+    if(numberOfResults < 0) {
+      document.getElementById('dashboard').innerHTML = '<div style="text-align:center; width:100%">No data to display.</div>';
+      return;
+    }
+    ////////////////////////////////////
+    // Create all the filters
+    var c = 0;
+    var filterList = [];
+    var dependentFilterList = [];
+    var sidebar = undefined;
+    for (var i = 0; i < numberOfColumns; i++) {
+      columnsToDisplay.push(i);
+      var columnLabel = data.getColumnLabel(i);
+      var filterType = data.getValue(0, i);
+      if (columnLabel.indexOf('Hidden') != -1) columnsToDisplay.pop();
+      else if (filterType != null && filterType.toString().indexOf('Hidden') != -1) columnsToDisplay.pop();
+      else if (numberOfResults > 0 && data.getValue(1, i) != null && data.getValue(1, i).toString().indexOf('Hidden') != -1) columnsToDisplay.pop();
+      if (columnLabel == '') {
+        var noLabel = true;
+        columnLabel = data.getValue(0, i);
+        data.setColumnLabel(i, columnLabel);
+        filterType = data.getValue(1, i);
+      }
+      else if (columnLabel.indexOf('CategoryFilter') != -1) {
+        if (columnLabel.indexOf('(') != -1) {
+          var intColumnLink = columnLabel.substring(columnLabel.indexOf('(')+1, columnLabel.indexOf(')'));
+          var filtersInLabel = true;
+          columnLabel = columnLabel.replace(/CategoryFilter/i, '').replace(/Hidden/i, '').replace('-', '');
+          columnLabel = columnLabel.substr(0,columnLabel.indexOf(' '));
+          data.setColumnLabel(i, columnLabel);
+          filterType = 'CategoryFilter';
+          for (var j = 0; j < numberOfColumns; j++) {
+            if (data.getColumnId(j) == intColumnLink){
+              dependentFilterList.push([i,j]);
+            }
+          }
+        }
+        else{
+          var filtersInLabel = true;
+          columnLabel = columnLabel.replace(/CategoryFilter/i, '').replace(/Hidden/i, '').replace('-', '');
+          data.setColumnLabel(i, columnLabel);
+          filterType = 'CategoryFilter';
+        }
+      }
+      else if (columnLabel.indexOf('StringFilter') != -1) {
+        var filtersInLabel = true;
+        columnLabel = columnLabel.replace(/StringFilter/i, '').replace(/Hidden/i, '').replace('-', '');
+        data.setColumnLabel(i, columnLabel);
+        filterType = 'StringFilter';
+      }
+      else if (columnLabel.indexOf('DateFilter') != -1 && (data.getColumnType(i) == 'datetime' || data.getColumnType(i) == 'date')) {
+        var filtersInLabel = true;
+        columnLabel = columnLabel.replace(/DateFilter/i, '').replace(/Hidden/i, '').replace('-', '');
+        data.setColumnLabel(i, columnLabel);
+        filterType = 'DateFilter';
+      }
+      else if (columnLabel.indexOf('Sidebar') != -1) {
+        var filtersInLabel = true;
+        columnLabel = columnLabel.replace(/Sidebar/i, '');
+        data.setColumnLabel(i, columnLabel);
+        filterType = 'Sidebar';
+      }
+      if(filterType == null) filterType = 'null';
+      if (filterType.toString().indexOf('CategoryFilter') != -1 
+      || (data.getColumnType(i) == 'number' && data.getColumnLabel(i).indexOf('NoFilter') == -1)  
+      || filterType.toString().indexOf('DateFilter') != -1  
+      || filterType.toString().indexOf('StringFilter') != -1  
+      || filterType.toString().indexOf('Sidebar') != -1) {
+        var controlerDiv = document.createElement('div');
+        controlerDiv.id = 'controlers' + c;
+        controlerDiv.className = 'controlers-filters';
+        document.getElementById('controlersPanel').appendChild(controlerDiv);
+        //////////////////////////////////////
+        // create Category Filter
+        if (filterType.toString().indexOf('CategoryFilter') != -1) {
+          var filter = new google.visualization.ControlWrapper({
+            'controlType': 'CategoryFilter',
+            'containerId': 'controlers' + c,
+            'options': {
+              'filterColumnIndex':i,
+              'filterColumnLabel':data.getColumnLabel(i),
+              'ui': {
+                'caption':prefs.getString("categoryCaption"),
+                'allowTyping': false,
+                'allowMultiple': true,
+                'selectedValuesLayout':'belowWrapping',
+                'labelStacking':'vertical' 
+              }
+            }
+          });
+        }
+        ////////////////////////////////////
+        // create Number Filter
+        else if (data.getColumnType(i) == 'number' && data.getColumnLabel(i).indexOf('DateFilter') == -1) {
+          var filter = new google.visualization.ControlWrapper({
+            'controlType': 'NumberRangeFilter',
+            'containerId': 'controlers' + c,
+            'options': {
+              'filterColumnIndex':i,
+              'filterColumnLabel':data.getColumnLabel(i),
+              'ui': {
+                'label':data.getColumnLabel(i).replace('-','').replace(/Hidden/i,''),
+                'labelStacking':'vertical',
+              }
+            }
+          });
+        }
+        ////////////////////////////////////
+        // create Date Filter based on numbers
+        else if (data.getColumnType(i) == 'number' && data.getColumnLabel(i).indexOf('DateFilter') != -1) {
+          controlerDiv.id = '';
+          var subContainer = document.createElement('div');
+          subContainer.id = 'controlers'+c;
+          controlerDiv.appendChild(subContainer);
+          var filter = new google.visualization.ControlWrapper({
+            'controlType': 'NumberRangeFilter',
+            'containerId': 'controlers' + c,
+            'options': {
+              'filterColumnIndex':i, 
+              'filterColumnLabel':data.getColumnLabel(i),
+              'ui': {
+                'label':data.getColumnLabel(i).replace('-','').replace(/Hidden/i,'').replace(/DateFilter/i,''),
+                'unitIncrement':100000000,
+                'blockIncrement':1000000000,
+                'showRangeValues':false,
+                'labelStacking':'vertical'
+              }
+            }
+          });
+          dateFilters.push(filter);
+          var rangeValues = document.createElement('div');
+          rangeValues.className = 'google-visualization-controls-rangefilter-thumblabel';
+          rangeValues.style.textAlign = 'left';
+          rangeValues.id = 'rangeValues' + (dateFilters.length - 1);
+          controlerDiv.appendChild(rangeValues);
+        }
+        ////////////////////////////////////
+        // create Date Filter based on dates
+        else if (filterType.toString().indexOf('DateFilter') != -1) {
+          // Create a new column to store date values as numbers
+          var r = data.addColumn('number', data.getColumnLabel(i));
+          for (var j = 0; j < numberOfResults + 1; j++) {
+            data.setValue(j, r, new Date(data.getValue(j, i)).getTime());
+          }
+          controlerDiv.id = '';
+          var subContainer = document.createElement('div');
+          subContainer.id = 'controlers'+c;
+          controlerDiv.appendChild(subContainer);
+          var filter = new google.visualization.ControlWrapper({
+            'controlType': 'NumberRangeFilter',
+            'containerId': 'controlers' + c,
+            'options': {
+              'filterColumnIndex':r, 
+              'filterColumnLabel':data.getColumnLabel(i),
+              'ui': {
+                'label':data.getColumnLabel(i).replace('-','').replace(/Hidden/i,'').replace(/DateFilter/i,''),
+                'unitIncrement':100000000,
+                'blockIncrement':1000000000,
+                'showRangeValues':false,
+                'labelStacking':'vertical'
+              }
+            }
+          });
+          dateFilters.push(filter);
+          var rangeValues = document.createElement('div');
+          rangeValues.className = 'google-visualization-controls-rangefilter-thumblabel';
+          rangeValues.style.textAlign = 'left';
+          rangeValues.id = 'rangeValues' + (dateFilters.length - 1);
+          controlerDiv.appendChild(rangeValues);
+        }
+        ////////////////////////////////////
+        // create String Filter
+        else if (filterType.toString().indexOf('StringFilter') != -1) {
+          var filter = new google.visualization.ControlWrapper({
+            'controlType': 'StringFilter',
+            'containerId': 'controlers' + c,
+            'options': {
+              'filterColumnIndex':i,
+              'filterColumnLabel':data.getColumnLabel(i),
+              'useFormattedValue':true,
+              'matchType': 'any',
+              'ui': {
+                'labelStacking':'vertical'
+              }
+            }
+          });
+        }
+        else if (filterType.toString().indexOf('Sidebar') != -1) {
+          sidebar = i;
+          continue;
+        }
+        filterList.push([filter,i]);
+        c++;
+      }
+      else if (data.getColumnLabel(i).indexOf('NoFilter') != -1){
+        columnLabel = columnLabel.replace(/NoFilter/i, '').replace('-', '');
+        data.setColumnLabel(i, columnLabel);
+      }
+    }
+    if(noLabel) {
+      data.removeRow(0);
+      console.log('no label');
+    }
+    if(!filtersInLabel)  {
+      // data.removeRow(0); - Was used to hide the second row (the one with the filters)
+      // shouldn't be necessary anymore - removed on 9/24/2013
+      console.log('filters in label');
+    }
+    /////////////////////////////////////////////
+    // Check which visualization should be used 
+    var visualizationType = prefs.getString("visualizationType");
+    if(visualizationType == 'Table') {
+      var pageSize = parseInt(prefs.getString("pageSize"));
+      wrapper = new google.visualization.ChartWrapper({
+        'chartType': 'Table',
+        'containerId': 'chart1',
+        'options': {
+          'allowHtml': true,
+          'page': 'enable',
+          'pageSize': pageSize,
+        },
+        'view': {'columns': columnsToDisplay}
+      });
+    }
+    else if(visualizationType == 'Maps') {
+      wrapper = new google.visualization.ChartWrapper({
+        'chartType': 'google.visualization.Map',
+        'containerId': 'chart1',
+        'options': {
+          showTip : true,
+          mapType: 'normal',
+          useMapTypeControl:true
+        },
+        'view': {'columns': columnsToDisplay}
+      });
+    }
+    else if(visualizationType == 'Gantt') {
+      wrapper = new google.visualization.ChartWrapper({
+        'chartType': 'Timeline',
+        'containerId': 'chart1',
+        'options': {
+          height:800,
+          timeline: {
+            colorByRowLabel : true,
+            groupByRowLabel : false,
+          }
+        },
+        'view': {'columns': columnsToDisplay}
+      });
+    }
+    
+    document.getElementById('numberOfResults').innerHTML = numberOfResults + 1;
+    var lastResultShown = (numberOfResults > pageSize) ? pageSize : numberOfResults + 1;
+    document.getElementById('lastResultShown').innerHTML = lastResultShown;
+    //////////////////////////////////////
+    // ChartWrapper currently propagates only the select, ready, and error events. 
+    // To get other events, you must get a handle to the wrapped chart and subscribe to events there.
+    google.visualization.events.addListener(wrapper, 'ready', function (e) {
+      google.visualization.events.addListener(wrapper.getChart(), 'page', function (e) {
+        document.getElementById('firstResultShown').innerHTML = e.page * pageSize + 1;
+        var lastResultShown = (numberOfResults > (e.page + 1) * pageSize) ? (e.page + 1) * pageSize : numberOfResults;
+        document.getElementById('lastResultShown').innerHTML = lastResultShown;
+        refresh();
+      });
+      google.visualization.events.addListener(wrapper.getChart(), 'sort', function () {
+        document.getElementById('firstResultShown').innerHTML = 1;
+        numberOfResults = wrapper.getDataTable().getNumberOfRows();
+        var lastResultShown = (numberOfResults > pageSize) ? pageSize : numberOfResults;
+        document.getElementById('lastResultShown').innerHTML = lastResultShown;
+        refresh();
+      });
+      if(c == 0) refresh(); // refresh here if we only display a table and not a dashboard
+    });
+    ////////////////////////////////////////////////
+    // SIDEBAR
+    // It is possible to add a sidebar to show 
+    // more information when the user click on 
+    // a specific result in the table
+    //
+    // 2 possibilities to add a sidebar, see doc
+    ////////////////////////////////////////////////
+    if(sidebar != undefined || sidebarColumn != ''){
+      // If the sidebar option has been added in the spreadsheet directly, data is available
+      if(sidebar != undefined) {
+        google.visualization.events.addListener(wrapper, 'select', function(e) {
+          var row = wrapper.getChart().getSelection()[0].row;
+          var sidebarData = wrapper.getDataTable().getValue(row, sidebar);
+          document.getElementById('sidebar').innerHTML = sidebarData;
+        });
+      }
+      // else the sidebar option has been added in the query, data has to be fetched from the spreadsheet
+      else {
+        google.visualization.events.addListener(wrapper, 'select', function(e) {
+          var row = wrapper.getChart().getSelection()[0].row;
+          var selectedData = wrapper.getDataTable().getValue(row, 0);
+          var query = new google.visualization.Query(queryString);
+          query.setQuery("Select " + sidebarColumn + " where " + idColumn + " = \"" + selectedData + "\"");
+          // Hide old selection
+          document.getElementById('sidebar').innerHTML = '<div class="loader"><img src="https://lh6.googleusercontent.com/-S87nMBe6KWE/TuB9dR48F0I/AAAAAAAAByQ/0Z96LirzDqg/s27/load.gif"></div>';
+          // Send the query with a callback function.
+          query.send(handleQueryResponseForSidebarData);
+        });
+      }
+      var width = document.body.clientWidth;
+      document.getElementById('chart1').style.width = width / 2 - 100;
+      document.getElementById('sidebar').style.width = width / 2;
+      document.getElementById('sidebar').style.paddingLeft = '20px';
+      document.getElementById('sidebar').innerHTML = '<p style="margin-top:10%;color:grey">←<br>←<br>←</p>';
+      // display the data requested in the sidebar if specified in the url
+      if(document.referrer.indexOf('?q=') != -1 &&  sidebarColumn != '') {
+        var q = document.referrer.split('?q=')[1];
+        var query = new google.visualization.Query(queryString);
+        query.setQuery("Select " + sidebarColumn + " where " + idColumn + " = \"" + q + "\"");
+        // Send the query with a callback function.
+        query.send(handleQueryResponseForSidebarData);
+        console.log(q);
+      }
+    }
+    //////////////////////////////
+    // Create the dashboard
+    //////////////////////////////
+    if(c > 0) {
+      // If there is at least one filter to build, build it
+      var dashboard = new google.visualization.Dashboard(document.getElementById('dashboard'));
+      // Configure the filters to affect the table contents
+      for (i = 0; i < filterList.length; i++) {
+        dashboard.bind(filterList[i][0], wrapper);
+      }
+      
+      for (j = 0; j < dependentFilterList.length; j++) {
+        var intCategorieFiltre = dependentFilterList[j][0];
+        var intSousCategorieFiltre = dependentFilterList[j][1];
+        var objFiltrePrincipal = false;
+        var objFiltreSecondaire = false;
+        for (k = 0; k <  filterList.length; k++) {
+          if (filterList[k][1] == intCategorieFiltre){
+            objFiltrePrincipal = filterList[k][0];
+            bFiltrePrincipal = true;
+          }
+          
+          if (filterList[k][1] == intSousCategorieFiltre){
+            objFiltreSecondaire = filterList[k][0];
+            bFiltreSecondaire = true;
+          }
+          
+          if ((objFiltrePrincipal) && (objFiltreSecondaire)){
+            dashboard.bind(objFiltrePrincipal, objFiltreSecondaire);
+            bFiltrePrincipal = false;
+            bFiltreSecondaire = false;
+          }
+        }
+      }
+      // Update the gadget when the dashboard has finished to load and when a filter is applied
+      google.visualization.events.addListener(dashboard, 'ready', function () {
+        numberOfResults = wrapper.getDataTable().getNumberOfRows();
+        var lastResultShown = (numberOfResults > pageSize) ? pageSize : numberOfResults;
+        document.getElementById('firstResultShown').innerHTML = 1;
+        if(numberOfResults == 0) document.getElementById('firstResultShown').innerHTML = 0;
+        document.getElementById('lastResultShown').innerHTML = lastResultShown;
+        document.getElementById('numberOfResults').innerHTML = numberOfResults;
+        refresh();
+      });
+      // Draw the dashboard
+      dashboard.draw(data);
+    }
+    else {
+      // There are no filters - create a simple table chart, with no filters (no dashboard)
+      wrapper.setDataTable(data);
+      wrapper.draw();
+    }
+    if(prefs.getBool("download")) document.getElementById('export').style.display = 'inline';
+    /////////////////////////////////////////////////
+    // Track gadget usage with Analytics
+    var ga = new _IG_GA("UA-17877121-2");
+    ga.reportEvent('Awesome Table', 'Loaded', document.referrer, 0); 
+  }
+  // Only useful if data displayed in Sidebar has to be fetched from spreadsheet
+  function handleQueryResponseForSidebarData(response) {
+    if (response.isError()) {
+      document.getElementById('sidebar').innerHTML = 'Error in query: ' + response.getMessage() + ' ' + response.getDetailedMessage();
+      return;
+    }
+    var sidebarData = response.getDataTable().getValue(0, 0);
+    document.getElementById('sidebar').innerHTML = sidebarData;
+    gadgets.window.adjustHeight();
+  }
+  ///////////////////////////////////////////////////
+  // Function refresh will be called everytime
+  // we need to update the UI to show every changes
+  ///////////////////////////////////////////////////
+  function refresh(){
+    console.log('Refresh...');
+    //
+    // move pagination buttons
+    var div_pagination = document.getElementById('pagination');
+    var div_to_move = document.getElementsByClassName('google-visualization-table-div-page');
+    if (div_to_move.length > 1) {
+      div_pagination.innerHTML = "";
+      div_to_move = document.getElementsByClassName('google-visualization-table-div-page');
+      div_pagination.appendChild(div_to_move[0]);
+    }
+    else if (div_to_move.length == 1 && div_pagination.getElementsByClassName('google-visualization-table-div-page').length == 0)  {
+      div_pagination.innerHTML = "";
+      div_pagination.appendChild(div_to_move[0]);
+    }
+    else if(div_to_move.length > 0 && div_to_move[0].childNodes.length == 1){
+      div_pagination.innerHTML = "";
+    }
+    //
+    // Recalculate date range
+    if (dateFilters.length > 0){
+      var padding = 100;
+      for(var i = 0; i < dateFilters.length; i++){
+        var state = dateFilters[i].getState();
+        var startDate = new Date(state.lowValue);
+        var endDate = new Date(state.highValue);
+        if(prefs.getString("dateFormat") == "dd/MM/yyyy"){
+          var formattedStartDate = startDate.getDate() + '/' + (startDate.getMonth() + 1) + '/' + startDate.getFullYear();
+          var formattedEndDate = endDate.getDate() + '/' + (endDate.getMonth() + 1) + '/' + endDate.getFullYear();
+        }
+        else if(prefs.getString("dateFormat") == "MM/yyyy"){
+          var formattedStartDate = (startDate.getMonth() + 1) + '/' + startDate.getFullYear();
+          var formattedEndDate = (endDate.getMonth() + 1) + '/' + endDate.getFullYear();
+          padding = 120;
+        }
+        else {
+          var formattedStartDate = (startDate.getMonth() + 1) + '/' + startDate.getDate() + '/' + startDate.getFullYear();
+          var formattedEndDate = (endDate.getMonth() + 1) + '/' + endDate.getDate() + '/' + endDate.getFullYear();
+        }
+        document.getElementById('rangeValues' + i).innerHTML = formattedStartDate + '<div style="padding-left:'+ padding +'px; display: inline-block;">' + formattedEndDate + '</div>';
+      }
+    }
+    if(sidebarColumn != '') document.getElementById('sidebar').innerHTML = '<p style="margin-top:10%;color:grey">←<br>←<br>←</p>';
+    //
+    // Tells gadget to resize itself multiple times (to resize until all images have been loaded)
+    countToAdjustHeight = 10;
+    var myInterval = setInterval(function(){
+      gadgets.window.adjustHeight();
+      countToAdjustHeight--;
+      if(countToAdjustHeight < 1) clearInterval(myInterval);
+    },500);
+    if(prefs.getBool("download")) {
+      // create a CSV from the data displayed
+      // and let it by downloaded through the Download button
+      //
+      // Grab text from table into CSV formatted string
+      var csv = '"';
+      var rowsDisplayed = JSON.parse(wrapper.getDataTable().toJSON()).rows;
+      if(rowsDisplayed == undefined) rowsDisplayed = data;
+      // Add headers
+      for(var i = 0; i < columnsToDisplay.length; i++) {
+        csv+=data.getColumnLabel(columnsToDisplay[i]).toString().replace(/"/g, '""'); // escape double quotes
+        if(i < columnsToDisplay.length - 1) csv+='","';
+      }
+      csv+='"\r\n';
+      // Add rows data
+      for(var i = 0; i < rowsDisplayed.length; i++) {
+        csv+='"';
+        for(var j = 0; j < columnsToDisplay.length; j++) {
+          var value = data.getValue(rowsDisplayed[i], columnsToDisplay[j]);
+          if(value != null) csv+=value.toString().replace(/"/g, '""'); // escape double quotes
+          if(j < columnsToDisplay.length - 1) csv+='","';
+        }
+        csv+='"\r\n';
+      }
+      // Data URI
+      var csvData = 'data:application/csv;charset=utf-8,' + encodeURIComponent(csv);
+      var exportButton = document.getElementById("export");
+      exportButton.href = csvData;
+      exportButton.download = "export.csv";
+    }
+  }
+  
+  google.setOnLoadCallback(drawVisualization);
+  refresh();
+</script>
+<body style="background-color: #F1F1F1;">
+  <div id="loader" class="loader">
+    <img src="https://lh6.googleusercontent.com/-S87nMBe6KWE/TuB9dR48F0I/AAAAAAAAByQ/0Z96LirzDqg/s27/load.gif">
+  </div>
+  
+  <div id="dashboard" style="display:none;">
+    <div id="controlersPanel">
+    </div>
+    <div>
+      
+      <div id="count">
+        <div style="float:left">
+          <b>
+            <span id="firstResultShown">
+              1
+            </span>
+          </b>
+          - 
+          <b>
+            <span id="lastResultShown">
+            </span>
+          </b>
+          / 
+          <b>
+            <span id="numberOfResults">
+            </span>
+          </b>
+        </div>
+        <div id="pagination" style="float: right;">
+        </div>
+      </div>
+      <br>
+      <div style="float: left; width:100%" id="chart1">
+      </div>
+      <div style="float: left;" id="sidebar">
+      </div>
+    </div>
+  </div>
+  <div style="clear:both;"><a href="#" id="export" style="display:none;"><img src="https://lh5.googleusercontent.com/-SG6DTbfzfE8/UdwcjAUwK1I/AAAAAAAAFNA/v2M3DCNaUuU/s20-no/download_icon.png"></a></div>
+  <div id="submitcomment" style="clear:both;" class="commentform"></div>
+  <script type="text/javascript">
+  // create the comment submit form
+  var frm = '<form action="'+ prefs.getString("comFrmAction")+'" method="POST" id="submitform" target="_blank" onsubmit="">';
+  frm += '<table>';
+  
+  var frmrows = prefs.getString("comFrmRows");
+  var rows = new Array();
+  rows = frmrows.split(',');
+  var intype = 'text';
+  for (var i = 0; i < rows.length; i++) {
+    frm += '<tr><td>'+rows[i].split(':')[0]+'</td>';
+   if(rows[i].split(':')[0].indexOf('Comment') > -1)
+    frm += '<td><textarea name="'+rows[i].split(':')[1].replace('_','.')+'" rows="8" cols="0" class="ss-q-long" id="'+rows[i].split(':')[1]+'"></textarea></td></tr>';
+   else if (rows[i].split(':')[0] == 'Submit') {
+    frm += '<td><input type="hidden" name="'+rows[i].split(':')[1].replace('_','.')+'" value="" class="ss-q-short" id="'+rows[i].split(':')[1]+'"><input type="hidden" name="draftResponse" value="[]"><input type="hidden" name="pageHistory" value="0"><input type="submit" name="submit" value="Submit" id="ss-submit" onclick="javascript:submitComment();" ></td></tr>';
+	hdnPageURLField = rows[i].split(':')[1];
+   } else
+    frm += '<td><input type="text" name="'+rows[i].split(':')[1].replace('_','.')+'" value="" class="ss-q-short" id="'+rows[i].split(':')[1]+'"></td></tr>';
+
+  }
+  frm += '</table></form>';
+  document.getElementById('submitcomment').innerHTML = frm;
+  </script>
+</body>
+  ]]>
+  </Content>
+</Module>
